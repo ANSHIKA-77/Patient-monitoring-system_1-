@@ -374,29 +374,25 @@
         }
 
         .dashboard-layout {
-
             display: grid;
-
-            grid-template-columns: 3fr 1.2fr;
-
+            grid-template-columns: 1.4fr 1fr;
             gap: 25px;
-
             align-items: start;
-
         }
 
         .analytics-panel {
-
-            display: none;
-            /* ADD THIS */
-
             background: white;
             padding: 25px;
             border-radius: 14px;
-            min-height: 600px;
+            min-height: 500px;
             position: sticky;
             top: 20px;
+        }
 
+        #patientChart {
+            width: 100% !important;
+            height: 340px !important;
+            display: block;
         }
 
         .analytics-empty {
@@ -443,7 +439,7 @@
 
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -472,7 +468,7 @@
             </div>
         </div>
 
-        <div class="main-layout">
+        <div class="dashboard-layout">
 
             <!-- LEFT SIDE -->
             <div>
@@ -504,7 +500,7 @@
                     </div>
 
                 </div>
-                <canvas id="patientChart" height="200"></canvas>
+                <canvas id="patientChart" height="340" style="width:100%;height:340px;display:block;"></canvas>
 
             </div>
 
@@ -854,62 +850,137 @@
                         alertColor = "#22c55e";
                     }
                     info.innerHTML = `
-    <div style="
-        font-size:18px;
-        font-weight:bold;
-        color:${alertColor};
-        margin-bottom:10px;
-    ">
+    <div style="font-size:15px;font-weight:bold;color:${alertColor};margin-bottom:10px;">
         ${alertMessage}
     </div>
-
     <b>Patient:</b> ${patientId}<br>
     Heart Rate: ${lastHR} bpm<br>
-    SpO₂: ${lastSpO2}%<br>
-    Temperature: ${lastTemp} °C
+    SpO&#8322;: ${lastSpO2}%<br>
+    Temperature: ${lastTemp} &deg;C
 `;
 
-                    const ctx =
-                        document
-                            .getElementById("patientChart")
-                            .getContext("2d");
+                    const canvasEl = document.getElementById("patientChart");
+                    const dpr = window.devicePixelRatio || 2;
+                    const displayWidth = canvasEl.clientWidth || canvasEl.offsetWidth || 400;
+                    const displayHeight = 340;
+                    canvasEl.width = displayWidth * dpr;
+                    canvasEl.height = displayHeight * dpr;
+                    canvasEl.style.width = displayWidth + "px";
+                    canvasEl.style.height = displayHeight + "px";
+
+                    const ctx = canvasEl.getContext("2d");
+                    ctx.scale(dpr, dpr);
 
                     if (chart) {
                         chart.destroy();
                     }
 
                     chart = new Chart(ctx, {
-
                         type: "line",
-
+                        devicePixelRatio: dpr,
                         data: {
-
                             labels: data.timestamps,
-
                             datasets: [
                                 {
-                                    label: "Heart Rate",
+                                    label: "Heart Rate (bpm)",
                                     data: data.heart_rate,
-                                    borderWidth: 2
+                                    borderColor: "#ef4444",
+                                    backgroundColor: "rgba(239,68,68,0.1)",
+                                    borderWidth: 2,
+                                    pointRadius: 3,
+                                    pointHoverRadius: 5,
+                                    tension: 0.3,
+                                    fill: false,
+                                    yAxisID: "yHR"
                                 },
                                 {
-                                    label: "SpO2",
+                                    label: "SpO\u2082 (%)",
                                     data: data.spo2,
-                                    borderWidth: 2
+                                    borderColor: "#3b82f6",
+                                    backgroundColor: "rgba(59,130,246,0.1)",
+                                    borderWidth: 2,
+                                    pointRadius: 3,
+                                    pointHoverRadius: 5,
+                                    tension: 0.3,
+                                    fill: false,
+                                    yAxisID: "ySpO2"
                                 },
                                 {
-                                    label: "Temperature",
+                                    label: "Temp (\u00b0C)",
                                     data: data.temperature,
-                                    borderWidth: 2
+                                    borderColor: "#f97316",
+                                    backgroundColor: "rgba(249,115,22,0.1)",
+                                    borderWidth: 2,
+                                    pointRadius: 3,
+                                    pointHoverRadius: 5,
+                                    tension: 0.3,
+                                    fill: false,
+                                    yAxisID: "yTemp"
                                 }
                             ]
-
                         },
-
                         options: {
-                            responsive: true
+                            responsive: false,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                mode: "index",
+                                intersect: false
+                            },
+                            animation: { duration: 300 },
+                            plugins: {
+                                legend: {
+                                    position: "top",
+                                    labels: {
+                                        font: { size: 11 },
+                                        usePointStyle: true,
+                                        padding: 10,
+                                        boxWidth: 10
+                                    }
+                                },
+                                tooltip: {
+                                    mode: "index",
+                                    intersect: false,
+                                    callbacks: {
+                                        label: function (ctx) {
+                                            const units = { "Heart Rate (bpm)": " bpm", "SpO\u2082 (%)": "%", "Temp (\u00b0C)": "\u00b0C" };
+                                            return ctx.dataset.label + ": " + ctx.parsed.y + (units[ctx.dataset.label] || "");
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: { display: true, text: "Reading #", font: { size: 11 } },
+                                    ticks: { font: { size: 10 }, maxTicksLimit: 10 },
+                                    grid: { color: "rgba(0,0,0,0.05)" }
+                                },
+                                yHR: {
+                                    type: "linear",
+                                    position: "left",
+                                    title: { display: true, text: "HR (bpm)", color: "#ef4444", font: { size: 10, weight: "bold" } },
+                                    ticks: { color: "#ef4444", font: { size: 10 } },
+                                    min: 40, max: 180,
+                                    grid: { color: "rgba(239,68,68,0.08)" }
+                                },
+                                ySpO2: {
+                                    type: "linear",
+                                    position: "right",
+                                    title: { display: true, text: "SpO\u2082 (%)", color: "#3b82f6", font: { size: 10, weight: "bold" } },
+                                    ticks: { color: "#3b82f6", font: { size: 10 } },
+                                    min: 80, max: 100,
+                                    grid: { drawOnChartArea: false }
+                                },
+                                yTemp: {
+                                    type: "linear",
+                                    position: "right",
+                                    title: { display: true, text: "Temp (\u00b0C)", color: "#f97316", font: { size: 10, weight: "bold" } },
+                                    ticks: { color: "#f97316", font: { size: 10 } },
+                                    min: 34, max: 42,
+                                    grid: { drawOnChartArea: false },
+                                    offset: true
+                                }
+                            }
                         }
-
                     });
 
                 });
