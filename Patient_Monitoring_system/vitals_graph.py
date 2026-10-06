@@ -103,7 +103,11 @@ def plot_multi_patient_comparison(file_paths, vital_col="heart_rate_bpm",
 
 if __name__ == "__main__":
     import glob
-    files = sorted(glob.glob("patient*.csv"))
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    files = sorted(glob.glob(os.path.join(base_dir, "patient*.csv")))
+    if not files:
+        files = sorted(glob.glob("patient*.csv"))
     if not files:
         files = ["patient_vitals_sample.csv"]
 

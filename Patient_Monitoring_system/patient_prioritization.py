@@ -3,6 +3,15 @@
 import heapq
 import time
 import glob
+import os
+import sys
+
+# Ensure safe UTF-8 output on Windows console
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 from data_loader      import CSVPatient
 from random_generator import RandomPatient
@@ -64,16 +73,44 @@ def news2(v) -> int:
 
 
 # ── Utility computation ───────────────────────────────────────────────────────
-def compute_utility(ml_prob, news2, hr, rr, spo2, sbp, temp):
-    # Base score
+def compute_utility(
+    ml_prob: float = 0.0,
+    news2: float = 0.0,
+    hr: float = 80.0,
+    rr: float = 16.0,
+    spo2: float = 98.0,
+    sbp: float = 120.0,
+    temp: float = 37.0,
+    blended_stability: float = None,
+    n2_score: float = None,
+    weights: dict = None,
+    alert_frequency: int = 0,
+    **kwargs
+) -> float:
+    if n2_score is not None:
+        news2 = n2_score
+    if rr is None and "resp_rate" in kwargs:
+        rr = kwargs["resp_rate"]
+
     news2_scaled = min(news2 / 15.0, 1.0)
-    utility = 0.4 * ml_prob + 0.3 * news2_scaled + 0.3 * (1 - (sbp/200))  # simple instability
+    instability = (1.0 - blended_stability) if blended_stability is not None else (1.0 - (sbp / 200.0))
+
+    if weights:
+        w_stab = weights.get("stability", 0.4)
+        w_resp = weights.get("response_time", 0.3)
+        utility = w_stab * (0.6 * ml_prob + 0.4 * instability) + w_resp * news2_scaled
+    else:
+        utility = 0.4 * ml_prob + 0.3 * news2_scaled + 0.3 * instability
 
     # Critical overrides — increase thresholds and set utility higher
-    if spo2 < 90 or sbp < 85 or rr > 35 or hr > 150 or temp > 40:
-        utility = max(utility, 0.98)  # previously 0.95
+    if (spo2 is not None and spo2 < 90) or \
+       (sbp is not None and sbp < 85) or \
+       (rr is not None and rr > 35) or \
+       (hr is not None and hr > 150) or \
+       (temp is not None and temp > 40):
+        utility = max(utility, 0.98)
 
-    return min(utility, 1.0)
+    return min(max(utility, 0.0), 1.0)
 # ── Greedy Best-First Search priority queue ───────────────────────────────────
 def prioritize(patient_list: list) -> list:
     heap = []
@@ -131,10 +168,6 @@ def process_vital(vital: dict, predictor: RiskPredictor) -> dict:
         rr=vital["resp_rate"]
     )
 
-   # Current:
-# blended_stability = 0.5 * stability + 0.5 * (1.0 - ml_prob_critical)
-
-# Change to give more weight to ML (which now includes extreme vitals):
     blended_stability = 0.4 * stability + 0.6 * (1.0 - ml_prob_critical)
 
     # Dynamic weights
@@ -154,7 +187,10 @@ def process_vital(vital: dict, predictor: RiskPredictor) -> dict:
         spo2=vital["spo2"],
         sbp=vital["sbp"],
         hr=vital["heart_rate"],
-        temp=vital["temperature"]
+        temp=vital["temperature"],
+        rr=vital["resp_rate"],
+        weights=weights,
+        alert_frequency=af
     )
 
     # Update alert fatigue counter if clinically high-risk
@@ -174,13 +210,13 @@ def process_vital(vital: dict, predictor: RiskPredictor) -> dict:
     }
 
 # ── Pretty printer ────────────────────────────────────────────────────────────
-RISK_ICON = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}
+RISK_ICON = {"Low": "[LOW] ", "Medium": "[MED] ", "High": "[HIGH]"}
 
 def print_priority_table(ordered: list):
     header = (f"{'#':<3} {'PID':<5} {'qSOFA':<7} {'NEWS2':<7} "
               f"{'ML Risk':<10} {'P(Crit)':<9} {'Utility':<9} {'Weights (s/r/re/af)'}")
     print(header)
-    print("─" * len(header))
+    print("-" * len(header))
     for rank, p in enumerate(ordered, 1):
         w = p["weights"]
         wstr = (f"{w['stability']:.2f}/"
@@ -190,7 +226,7 @@ def print_priority_table(ordered: list):
         icon = RISK_ICON.get(p["ml_risk"], "")
         print(
             f"{rank:<3} {p['patient_id']:<5} {p['qsofa']:<7} {p['news2']:<7} "
-            f"{icon}{p['ml_risk']:<9} {p['ml_p_crit']:.3f}     "
+            f"{icon}{p['ml_risk']:<7} {p['ml_p_crit']:.3f}     "
             f"{p['utility']:.3f}     {wstr}"
         )
 
@@ -205,10 +241,10 @@ def run(csv_files: list[str], n_random: int = 5, cycles: int = 3):
     random_patients = [RandomPatient(len(csv_files) + i + 1) for i in range(n_random)]
 
     for cycle in range(1, cycles + 1):
-        print(f"\n{'═'*70}")
+        print(f"\n{'='*70}")
         print(f"  Monitoring Cycle {cycle}  |  ICU Bed Availability: "
               f"{ICU_BED_AVAILABILITY:.0%}")
-        print(f"{'═'*70}")
+        print(f"{'='*70}")
 
         all_patients = []
 
@@ -228,7 +264,8 @@ def run(csv_files: list[str], n_random: int = 5, cycles: int = 3):
 
 
 if __name__ == "__main__":
-    files = sorted(glob.glob("patient*.csv"))
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    files = sorted(glob.glob(os.path.join(base_dir, "patient*.csv")))
     if not files:
-        files = ["patient_vitals_sample.csv"]
-    run(csv_files=files, n_random=5, cycles=3)
+        files = sorted(glob.glob("patient*.csv"))
+    run(csv_files=files, n_random=5, cycles=3)

@@ -2,6 +2,10 @@ from flask import Flask, render_template_string, jsonify
 import time
 import random
 import threading
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 from main import (
     calculate_qsofa, calculate_news2, bayesian_update,
     compute_utility, get_weights_for_patient, predictor
@@ -34,11 +38,8 @@ def initialize_patients():
     from random_generator import RandomPatient
 
     csv_patients = [
-        CSVPatient("patient1.csv", 1),
-        CSVPatient("patient2.csv", 2),
-        CSVPatient("patient3.csv", 3),
-        CSVPatient("patient4.csv", 4),
-        CSVPatient("patient5.csv", 5),
+        CSVPatient(os.path.join(BASE_DIR, f"patient{i}.csv"), i)
+        for i in range(1, 6)
     ]
 
     random_patients = [
@@ -205,7 +206,8 @@ def get_current_patient_data():
 
 @app.route('/')
 def index():
-    with open('index.html', 'r') as f:
+    html_path = os.path.join(BASE_DIR, 'index.html')
+    with open(html_path, 'r', encoding='utf-8') as f:
         html_content = f.read()
     return render_template_string(html_content)
 
@@ -219,22 +221,25 @@ def get_charts():
 
 @app.route("/patient_graph/<int:patient_id>")
 def patient_graph(patient_id):
-
     pid = str(patient_id)
 
-    if pid not in chart_history['heart_rate']:
+    if pid not in chart_history.get('heart_rate', {}):
         return jsonify({
             "timestamps": [],
             "heart_rate": [],
             "spo2": [],
-            "temperature": []
+            "temperature": [],
+            "resp_rate": [],
+            "sbp": []
         })
 
     return jsonify({
         "timestamps": chart_history["timestamps"],
-        "heart_rate": chart_history["heart_rate"][pid],
-        "spo2": chart_history["spo2"][pid],
-        "temperature": chart_history["temperature"][pid]
+        "heart_rate": chart_history["heart_rate"].get(pid, []),
+        "spo2": chart_history["spo2"].get(pid, []),
+        "temperature": chart_history["temperature"].get(pid, []),
+        "resp_rate": chart_history.get("resp_rate", {}).get(pid, []),
+        "sbp": chart_history.get("sbp", {}).get(pid, [])
     })
 
 def update_data_loop():

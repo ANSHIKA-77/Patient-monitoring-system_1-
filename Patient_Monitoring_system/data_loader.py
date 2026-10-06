@@ -23,9 +23,8 @@ class CSVPatient:
                 })
 
     def get_next_vital(self):
-        if self.index < len(self.data):
-            vital = self.data[self.index]
-            self.index += 1
-            return vital
-        else:
+        if not self.data:
             return None
+        vital = self.data[self.index]
+        self.index = (self.index + 1) % len(self.data)
+        return vital
